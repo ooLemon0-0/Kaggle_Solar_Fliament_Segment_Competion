@@ -5,6 +5,7 @@ No original source file is replaced. Existing checkpoint budget/RNG are resumed.
 """
 import _bootstrap
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -60,6 +61,38 @@ def backup_attempt(base):
     return archive
 
 
+def fresh_start_evidence(folder,cfg):
+    """A CSV header is created BEFORE the first forward; it is not training.
+
+    Allow that known first-forward failure only with no evidence of an update.
+    Preserve the whole attempt before starting. Unknown/partial training blocks.
+    """
+    if (folder/'config.json').exists() and read(folder/'config.json')!=cfg:
+        raise RuntimeError('Existing projection config mismatch')
+    artifacts=['best.pt','best_metrics.json','best_predictions.json','validation_predictions.json','completed.json','paused.json']
+    if any((folder/name).exists() for name in artifacts) or any(folder.glob('validation_epoch_*.json')):
+        raise RuntimeError('Training artifacts exist without last.pt; refusing a silent restart')
+    progress=read(folder/'progress.json') if (folder/'progress.json').exists() else {}
+    if progress.get('stage') in {'training','validation','paused','completed'} or any(progress.get(key,0) for key in ['sample','updates','training_seconds','image']):
+        raise RuntimeError('Recorded projection progress without last.pt; cannot safely resume')
+    log=folder/'train_console.log'
+    if log.exists():
+        with log.open(encoding='utf-8',errors='replace') as stream:
+            if any(line.startswith(('TRAIN image_projection','OFFICIAL ')) for line in stream):
+                raise RuntimeError('Projection training log shows progress without last.pt')
+    path=folder/'training_log.csv'
+    if not path.exists():return 'no_formal_training_artifacts'
+    expected=['epoch','samples','updates','training_seconds','pq','dice','iou']
+    with path.open(encoding='utf-8-sig',newline='') as stream:
+        rows=[row for row in csv.reader(stream) if any(part.strip() for part in row)]
+    if rows and rows!=[expected]:
+        raise RuntimeError('Projection CSV contains training records or unknown columns without last.pt')
+    failure=read(folder/'failure.json') if (folder/'failure.json').exists() else {}
+    if 'A view was created in no_grad mode' not in failure.get('message','') or 'nested_tensor_from_tensor_list' not in failure.get('traceback',''):
+        raise RuntimeError('Header-only CSV without confirmed input-packing failure; inspect before restart')
+    return 'header_only_csv_known_input_packing_failure_no_recorded_progress'
+
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--active-project',type=Path,required=True)
     active=parser.parse_args().active_project.resolve()
@@ -93,6 +126,7 @@ def main():
     last=folder/'last.pt'
     if (folder/'completed.json').exists():raise RuntimeError('Projection already completed; refusing to overwrite')
     # Checkpoint exists => require a complete resumable checkpoint, never restart it.
+    restart_evidence=None
     if last.exists():
         saved=torch.load(last,map_location='cpu',weights_only=False)
         for key in ['model','optimizer','state','config','rng']:
@@ -102,11 +136,13 @@ def main():
             if saved['state'][which+'_split_sha256']!=digest(split_path(which)):
                 raise RuntimeError('Projection checkpoint split mismatch')
         del saved
-    elif any((folder/name).exists() for name in ['best.pt','best_metrics.json','training_log.csv']):
-        raise RuntimeError('Training artifacts exist without last.pt; refusing a silent restart')
+    else:
+        print('PROJECTION_RESTART_INSPECTION: last.pt missing; verifying CSV contents, progress, results and original failure',flush=True)
+        restart_evidence=fresh_start_evidence(folder,cfg)
+        print('PROJECTION_RESTART_ELIGIBLE',restart_evidence,flush=True)
     archive=backup_attempt(base)
     commit=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
-    record=dict(source_commit=commit,backup=str(archive),resume=last.exists(),time=time.time(),
+    record=dict(source_commit=commit,backup=str(archive),resume=last.exists(),restart_evidence=restart_evidence,time=time.time(),
                 policy='unchanged resolution/split/30 epochs or 4 training hours; preserve prior budget and RNG')
     atomic_json(folder/'repair_record.json',record)
     status.update(stage='image_projection_repair',active_routes={'image_projection':dict(pid=os.getpid(),create_time=psutil.Process().create_time())},updated=time.time())

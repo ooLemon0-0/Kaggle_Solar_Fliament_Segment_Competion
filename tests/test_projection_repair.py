@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -60,6 +61,44 @@ class ProjectionRepairTests(unittest.TestCase):
                 archive=repair.backup_attempt(base)
             for name in ['last.pt','train_console.log']:
                 self.assertEqual((folder/name).read_bytes(),(archive/'attempt'/name).read_bytes())
+
+    def header_attempt(self,folder):
+        (folder/'training_log.csv').write_text('epoch,samples,updates,training_seconds,pq,dice,iou\n')
+        (folder/'failure.json').write_text(json.dumps({'message':'A view was created in no_grad mode and is being modified inplace with grad mode enabled.', 'traceback':'nested_tensor_from_tensor_list\n pad_img.copy_(img)'}))
+
+    def test_known_first_forward_failure_with_header_is_not_training(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory);self.header_attempt(folder)
+            evidence=repair.fresh_start_evidence(folder,{})
+            self.assertIn('header_only_csv',evidence)
+            self.assertTrue((folder/'failure.json').exists())
+            self.assertEqual((folder/'training_log.csv').read_text().count('\n'),1)
+
+    def test_no_checkpoint_real_csv_row_or_unknown_csv_is_blocked(self):
+        for contents in ['epoch,samples,updates,training_seconds,pq,dice,iou\n2,936,234,100,.4,.6,.5\n','unknown,columns\n']:
+            with tempfile.TemporaryDirectory() as directory:
+                folder=Path(directory);self.header_attempt(folder)
+                (folder/'training_log.csv').write_text(contents)
+                with self.assertRaisesRegex(RuntimeError,'CSV contains'):repair.fresh_start_evidence(folder,{})
+
+    def test_header_is_not_enough_without_matching_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory);self.header_attempt(folder)
+            (folder/'failure.json').unlink()
+            with self.assertRaisesRegex(RuntimeError,'confirmed input-packing'):repair.fresh_start_evidence(folder,{})
+
+    def test_missing_checkpoint_partial_progress_and_results_are_blocked(self):
+        for filename,data in [('progress.json',json.dumps({'stage':'training','epoch':1,'sample':20})),('train_console.log','TRAIN image_projection epoch=1 sample=20\n'),('best_predictions.json','{}')]:
+            with tempfile.TemporaryDirectory() as directory:
+                folder=Path(directory);self.header_attempt(folder);(folder/filename).write_text(data)
+                with self.assertRaises(RuntimeError):repair.fresh_start_evidence(folder,{})
+
+    def test_clean_unstarted_attempt_and_config_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            self.assertEqual(repair.fresh_start_evidence(folder,{}),'no_formal_training_artifacts')
+            (folder/'config.json').write_text('{"size":384}')
+            with self.assertRaisesRegex(RuntimeError,'config mismatch'):repair.fresh_start_evidence(folder,{'size':1056})
 
 
 if __name__=='__main__':unittest.main()

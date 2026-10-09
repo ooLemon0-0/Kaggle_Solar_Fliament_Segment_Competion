@@ -32,7 +32,7 @@ bash /tmp/solar-requeue-projection.sh "$PWD" /root/autodl-tmp/solar_filament_lin
 
 补跑从新Git目录加载源码，共享原输入资产；**原训练源码不覆盖**。投影输出仍在原`output/benchmark/routes_v3/image_projection`，所以原监控命令继续有效。先完整备份失败目录（含last/best/checkpoint/log/config）及队列状态/报告至原`output/benchmark/routes_v3/repair_history/image_projection_<timestamp>`，日志追加。
 
-有完整last.pt时恢复optimizer/RNG/排列offset/累计预算，不重置训练计时；没有last.pt且没有best.pt、best_metrics或training_log才允许新训练。存在不可恢复训练产物时拒绝覆盖，报blocked。修复预检写新记录，旧记录已归档。完成后更新原六路线状态和报告；失败或暂停不启动Flow。`repair_record.json`记录源码commit、备份路径与是否续训，`repair_failure.json`记录新失败；原failure.json保留作历史证据。
+有完整last.pt时恢复optimizer/RNG/排列offset/累计预算，不重置训练计时。没有last.pt时，CSV仅有表头不是已经训练的证据：engine在第一次前向前创建表头。若CSV为空/仅原字段表头，且failure.json对应已知`no_grad`视图错误和`nested_tensor_from_tensor_list`，无训练进度、TRAIN/OFFICIAL日志、best或验证产物，允许完整备份后开始；`repair_record.json.restart_evidence`记录此判据。CSV包含实际记录、已有训练进度/验证结果或不匹配的失败则仍拒绝覆盖。原cf280c6只判断CSV存在，可能误拦截表头；本次修正仅恢复判定，不再改模型。修复预检写新记录，旧记录已归档。完成后更新原六路线状态和报告；失败或暂停不启动Flow。`repair_record.json`记录源码commit、备份路径与是否续训，`repair_failure.json`记录新失败；原failure.json保留作历史证据。
 
 新队列运行/等待期间继续固定commit，不再次pull。取消等待器只有在尚未开始追加训练时可执行；补跑期间需要停止时用原`linux/stop.sh`，会在累积边界保留last.pt并阻断Flow，恢复须检查实际进程及相同源码。
 
