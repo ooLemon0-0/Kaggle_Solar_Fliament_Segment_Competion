@@ -1,0 +1,14 @@
+seed: 42
+image_size: 1024
+inference_size: 1024
+epochs: 30
+debug_epochs: 1
+batch_size: 1
+lr: 0.0001
+backbone_weights: 'C:\Users\Administrator\Desktop\Cisdi\DBD\dbd_compositional_dinov3\pretrained\dinov3-vits16-pretrain-lvd1689m'
+hidden_dim: 128
+decoder_layers: 3
+num_queries: 64
+confidence: 0.25
+mask_threshold: 0.5
+min_area: 32

@@ -1,0 +1,19 @@
+{
+  "project_root": "F:\\CISDI\\Cisdi\\Kaggle",
+  "backup": "F:\\CISDI\\Cisdi\\Kaggle\\work\\migration_resume_20261008_193741",
+  "timestamp": 1791459462.8031836,
+  "missing_at_migration": [
+    "src/routes_v3/resources.py",
+    "output/benchmark/routes_v3/sam"
+  ],
+  "flow_resume": {
+    "epoch": 16,
+    "offset": 936,
+    "validation_pending": true,
+    "optimizer_updates": 3744
+  },
+  "rf": "completed checkpoint and results retained; skip retraining",
+  "sam": "No SAM training checkpoint in migrated output; user authorized a new run after search. Pretrained weights retained.",
+  "notifications": "paused by user",
+  "protocol": "Original run configs and split hashes retained."
+}

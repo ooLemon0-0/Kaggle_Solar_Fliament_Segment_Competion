@@ -1,0 +1,33 @@
+{
+  "time": 1791460012.3750496,
+  "backup": "F:\\CISDI\\Cisdi\\Kaggle\\work\\serial_switch_1791460011",
+  "resume_states": {
+    "flow": {
+      "epoch": 16,
+      "offset": 100,
+      "train_seconds": 3717.3179999999265,
+      "best_pq": 0.36289861042851523,
+      "best_epoch": 12,
+      "updates": 3769,
+      "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+      "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+      "validation_pending": false,
+      "gpu_window_wait_seconds": 5.657000000000153
+    },
+    "sam": {
+      "epoch": 0,
+      "offset": 300,
+      "train_seconds": 63.93199999999342,
+      "best_pq": -1.0,
+      "best_epoch": null,
+      "updates": 75,
+      "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+      "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+      "validation_pending": false,
+      "gpu_window_wait_seconds": 300.8640000000005
+    }
+  },
+  "mode": "strict_serial",
+  "reason": "User rejected unproven cooperative concurrency. Preserve latest atomic optimizer/RNG checkpoints; replay only work after these checkpoints.",
+  "notifications": "paused"
+}

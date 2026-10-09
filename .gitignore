@@ -1,0 +1,77 @@
+# Downloaded data, generated results, logs and machine environments
+/data/
+/output/
+/work/
+/logs/
+/deliverables/
+/Ultralytics/
+.cache/
+.envs/
+.venv/
+venv/
+env/
+
+# Source protocol metadata only (no annotations, predictions or checkpoints)
+!/output/
+/output/*
+!/output/benchmark/
+/output/benchmark/*
+!/output/benchmark/routes_v3/
+/output/benchmark/routes_v3/*
+!/output/benchmark/routes_v3/experiment_manifest.json
+!/output/benchmark/routes_v3/plan.md
+!/output/benchmark/routes_v3/scheduling_policy.json
+!/output/benchmark/routes_v3/migration_recovery.json
+!/output/benchmark/routes_v3/serial_switch.json
+
+# Python / development caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.ipynb_checkpoints/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Weights, exports, downloaded archives and backups
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.engine
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.bundle
+*.log
+
+# Credentials must remain outside Git
+.env
+.env.*
+!.env.example
+.kaggle/
+.ssh/
+.aws/
+kaggle.json
+access_token
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local reference documents; official frozen sources live under official/
+/Solar Filament Segmentation Challenge.md
+/Solar Filament Segmentation Challenge.pdf
+/self-evaluation-notebook.ipynb

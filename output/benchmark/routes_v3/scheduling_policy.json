@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "mode": "strict_serial",
+  "max_resident_routes": 1,
+  "order": [
+    "rf",
+    "flow",
+    "sam",
+    "image_projection",
+    "feature_control",
+    "feature_structure"
+  ],
+  "gpu_memory_fraction": 0.85,
+  "gpu_window_mutex": false,
+  "reason": "User requested removal of cooperative concurrency; no established throughput benefit.",
+  "resume": "Preserve latest atomic optimizer/RNG/epoch order/offset checkpoints; replay only unsaved tail.",
+  "historical_cooperative_wait": "Retain previously accumulated wait in results; not included in four-hour budget."
+}

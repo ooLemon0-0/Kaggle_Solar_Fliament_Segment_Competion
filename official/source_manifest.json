@@ -1,0 +1,18 @@
+{
+  "source_url": "https://www.kaggle.com/code/azimahmadzadeh/self-evaluation-notebook",
+  "sha256": "ae7c9445b4eee2b77b216df5c9772fdf92fda15611e98abd7ef5f02a4e380801",
+  "total_cells": 11,
+  "cell_numbering": "1-based, all code and markdown cells included",
+  "extracted_cells": [
+    2,
+    4,
+    5
+  ],
+  "pq_cell": 5,
+  "helper_cell": 4,
+  "plots_cell": 6,
+  "invocation_cell": 8,
+  "function_bodies": "verbatim",
+  "source_filename": "official\\self_evaluation\\self-evaluation-notebook.ipynb",
+  "preserved_filename": "official/Self_Evaluation_Notebook.ipynb"
+}

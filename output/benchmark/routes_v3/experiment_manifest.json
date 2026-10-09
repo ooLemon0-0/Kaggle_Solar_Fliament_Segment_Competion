@@ -1,0 +1,126 @@
+{
+  "protocol_version": 3,
+  "runs": [
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "rf",
+      "kind": "rf",
+      "dependency": null
+    },
+    {
+      "size": 384,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 1e-05,
+      "encoder_lr": 1e-05,
+      "id": "flow",
+      "kind": "flow",
+      "dependency": null
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 5e-05,
+      "encoder_lr": 1e-06,
+      "id": "sam",
+      "kind": "sam",
+      "dependency": "rf"
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "image_projection",
+      "kind": "image_projection",
+      "dependency": "rf"
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "feature_control",
+      "kind": "feature_control",
+      "dependency": "rf"
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "feature_structure",
+      "kind": "feature_structure",
+      "dependency": "rf"
+    }
+  ],
+  "deliverable_dir": "C:\\Users\\Administrator\\Documents\\Codex\\2026-10-07\\files-mentioned-by-the-user-kaggle\\outputs\\routes_v3",
+  "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+  "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+  "train_observations": 565,
+  "train_annotation_groups": 936,
+  "val_observations": 142,
+  "val_annotation_groups": 218,
+  "versions": {
+    "torch": "2.11.0+cu128",
+    "torchvision": "0.26.0+cu128",
+    "rfdetr": "1.11.2",
+    "cellpose": "4.2.1.1",
+    "dinov3": "0.0.1",
+    "transformers": "5.17.0"
+  },
+  "common_postprocess": {
+    "confidence": 0.25,
+    "max_instances": 64,
+    "mask_logit_threshold": 0.0,
+    "native_mask_size": 2048
+  },
+  "test_policy": "No test data used for training, selection, thresholds or route ranking.",
+  "budget": "30 epochs OR 4 training hours per run, first reached; preflight, asset preparation and validation excluded.",
+  "inheritance": "All dependent runs inherit best RF checkpoint; report both incremental and inherited training cost.",
+  "resume": "AdamW, model, RNG and epoch permutation/offset saved atomically after completed gradient accumulation.",
+  "scheduling": {
+    "version": 2,
+    "mode": "strict_serial",
+    "max_resident_routes": 1,
+    "order": [
+      "rf",
+      "flow",
+      "sam",
+      "image_projection",
+      "feature_control",
+      "feature_structure"
+    ],
+    "gpu_memory_fraction": 0.85,
+    "gpu_window_mutex": false,
+    "reason": "User requested removal of cooperative concurrency; no established throughput benefit.",
+    "resume": "Preserve latest atomic optimizer/RNG/epoch order/offset checkpoints; replay only unsaved tail.",
+    "historical_cooperative_wait": "Retain previously accumulated wait in results; not included in four-hour budget."
+  }
+}
