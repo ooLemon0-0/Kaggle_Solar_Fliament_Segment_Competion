@@ -1,0 +1,61 @@
+{
+  "source": "F:/CISDI/Cisdi/Kaggle",
+  "destination": "AutoDL Linux RTX4090D 24GB",
+  "snapshots": {
+    "rf": {
+      "checkpoint": "best.pt",
+      "bytes": 432251581,
+      "state": {
+        "epoch": 19,
+        "offset": 936,
+        "train_seconds": 6194.47100000002,
+        "best_pq": 0.41169487380981445,
+        "best_epoch": 20,
+        "updates": 4680,
+        "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+        "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+        "validation_pending": true
+      },
+      "permutation_samples": 936,
+      "complete": true
+    },
+    "flow": {
+      "checkpoint": "last.pt",
+      "bytes": 1025535660,
+      "state": {
+        "epoch": 23,
+        "offset": 936,
+        "train_seconds": 5636.875999999915,
+        "best_pq": 0.3728415620791982,
+        "best_epoch": 18,
+        "updates": 5616,
+        "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+        "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+        "validation_pending": true,
+        "gpu_window_wait_seconds": 5.657000000000153
+      },
+      "permutation_samples": 936,
+      "complete": false
+    },
+    "sam": {
+      "checkpoint": "last.pt",
+      "bytes": 270413499,
+      "state": {
+        "epoch": 0,
+        "offset": 300,
+        "train_seconds": 63.93199999999342,
+        "best_pq": -1.0,
+        "best_epoch": null,
+        "updates": 75,
+        "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+        "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+        "validation_pending": false,
+        "gpu_window_wait_seconds": 300.8640000000005
+      },
+      "permutation_samples": 936,
+      "complete": false
+    }
+  },
+  "policy": "RF complete skipped; Flow validation_pending resumed by repeating full validation; SAM optimizer/RNG/sample offset resumed; other routes fresh. Old partial validation is not official epoch24 PQ.",
+  "hardware_note": "Resume preserves saved states, but Windows 5070Ti -> Linux4090D is not bit-for-bit reproducible. Four-hour budget preserves already accumulated preparation+compute time, excluding validation."
+}

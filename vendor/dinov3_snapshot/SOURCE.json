@@ -1,0 +1,12 @@
+{
+  "direct_url": {
+    "archive_info": {
+      "hash": "sha256=9b8e9736e97f0557f24d2cd974ee667d6fe6a1420bd640bc9048f17168646e1c",
+      "hashes": {
+        "sha256": "9b8e9736e97f0557f24d2cd974ee667d6fe6a1420bd640bc9048f17168646e1c"
+      }
+    },
+    "url": "https://github.com/facebookresearch/dinov3/archive/refs/heads/main.zip"
+  },
+  "method": "Exact installed pure-Python snapshot, byte-for-byte source copied; no moving Git main download."
+}

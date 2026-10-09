@@ -37,7 +37,7 @@ def report(status):
            '| Route | Status | PQ | Dice | IoU | Completed epochs | Train h |','|---|---|---:|---:|---:|---:|---:|']
     for r in rows:
         lines.append('| '+ ' | '.join(str(r[k]) if r[k] is not None else 'pending' for k in ['route','status','pq','dice','iou','completed_epochs','training_hours'])+' |')
-    lines+=['','Feature_control vs feature_structure isolates structured supervision. Image projection uses frozen RF; feature routes train only the mask head and new detail branch. SAM uses RF-predicted boxes. Cellpose uses global stitched-flow reconstruction and cannot represent overlapping instances at one pixel.','',
+    lines+=['','Migration: prior preparation/computation seconds remain charged to the original budget. Windows RTX5070Ti -> Linux RTX4090D continuation preserves checkpoint states but is not bit-for-bit reproducible. Image projection operates after resizing to 1056, so this experiment does not test native ultra-high-resolution projection.','', 'Feature_control vs feature_structure isolates structured supervision. Image projection uses frozen RF; feature routes train only the mask head and new detail branch. SAM uses RF-predicted boxes. Cellpose uses global stitched-flow reconstruction and cannot represent overlapping instances at one pixel.','',
             'These are route-screening experiments, not proof of the globally best architecture. Old baseline PQ: YOLO11s 0.371927, R50 U-Net 0.343608, frozen DINOv3 0.026902.']
     (BASE/'comparison.md').write_text('\n'.join(lines),encoding='utf-8')
     from src.routes_v3.diagnostics import compare_artifacts,visualize,detection_diagnostic
@@ -47,87 +47,59 @@ def report(status):
     for name in ['results.csv','comparison.md','experiment_manifest.json','pipeline_status.json','artifact_checks.json','same_scene_comparison.png']:
         if not (BASE/name).exists():continue
         shutil.copy2(BASE/name,dest/name)
-
-def available_resources():
-    try:
-        result=subprocess.check_output(['nvidia-smi','--query-gpu=memory.free','--format=csv,noheader,nounits'],text=True,timeout=5)
-        return float(result.strip().splitlines()[0])>=4096 and psutil.virtual_memory().available>=6*2**30
-    except (OSError,ValueError,subprocess.SubprocessError):return False
+    for route,names in {'rf':['detection_diagnostics.json'],'sam':['oracle_diagnostics.json','diagnostic_failure.json']}.items():
+        for name in names:
+            if (BASE/route/name).exists():
+                (dest/route).mkdir(exist_ok=True);shutil.copy2(BASE/route/name,dest/route/name)
 
 def main():
-    BASE.mkdir(parents=True,exist_ok=True);lockpath=BASE/'runner_lock.json'
-    if lockpath.exists() and alive(load_json(lockpath)):raise RuntimeError('Verified existing runner; duplicate launch rejected')
-    # Also detect children after an abrupt parent exit, including venv launcher descendants.
+    import signal
+    BASE.mkdir(parents=True,exist_ok=True)
     for p in psutil.process_iter(['pid','cmdline']):
         try:
             if any(os.path.basename(x)=='train_route.py' for x in (p.info['cmdline'] or [])):
                 raise RuntimeError(f'Existing training process {p.pid}; refusing duplicate runner')
         except psutil.Error:pass
-    me=psutil.Process();lock=dict(pid=os.getpid(),create_time=me.create_time())
-    atomic_json(lockpath,lock)
+    me=psutil.Process()
+    identity=dict(pid=os.getpid(),create_time=me.create_time())
+    atomic_json(BASE/'runner_lock.json',identity)
+    status=dict(stage='starting',**identity,routes={},active_routes={},updated=time.time(),scheduling='linux_strict_serial')
     manifest=load_json(BASE/'experiment_manifest.json')
-    status=dict(stage='starting',pid=os.getpid(),create_time=me.create_time(),routes={},active_routes={},updated=time.time(),scheduling='strict_serial_v1')
-    pending=[];active={};deferred=set();retried=set()
     for cfg in manifest['runs']:
-        folder=BASE/cfg['id'];folder.mkdir(parents=True,exist_ok=True)
-        if (folder/'completed.json').exists():status['routes'][cfg['id']]='completed';continue
-        status['routes'][cfg['id']]='queued';pending.append(cfg)
+        status['routes'][cfg['id']]='completed' if (BASE/cfg['id']/'completed.json').exists() else 'queued'
     def persist():
-        status['active_routes']={key:entry['identity'] for key,entry in active.items()}
-        status['stage']='parallel' if len(active)>1 else next(iter(active),'starting')
-        first=next(iter(active.values()),None)
-        status['child_pid']=first['identity']['pid'] if first else None
-        status['child_create_time']=first['identity']['create_time'] if first else None
         status['updated']=time.time();atomic_json(BASE/'pipeline_status.json',status)
-    while pending or active:
-        completed_any=False
-        for key,entry in list(active.items()):
-            code=entry['process'].poll()
-            if code is None:continue
-            entry['log'].close();del active[key];folder=BASE/key
-            if code==0 and (folder/'completed.json').exists():status['routes'][key]='completed'
-            else:
-                failure=load_json(folder/'failure.json') if (folder/'failure.json').exists() else {}
-                oom='outofmemory' in failure.get('exception','').lower() or 'out of memory' in failure.get('message','').lower()
-                if oom and entry['cohort'] and key not in retried:
-                    atomic_json(folder/'cohort_failure.json',failure)
-                    deferred.add(key);retried.add(key);pending.insert(0,entry['cfg']);status['routes'][key]='deferred_serial_retry'
-                    print(f'COHORT OOM {key}; preserving checkpoint and deferring one serial recovery',flush=True)
-                else:status['routes'][key]='failed'
-            status['exit_code']=code;completed_any=True
-        for cfg in list(pending):
-            key=cfg['id']
-            if cfg['dependency'] and not (BASE/'rf/completed.json').exists():
-                if status['routes'].get('rf') in ['failed','blocked_missing_rf_checkpoint']:
-                    status['routes'][key]='blocked_missing_rf_checkpoint';pending.remove(cfg)
-                continue
-            cohort=bool(active)
-            if cohort:continue
-            env=os.environ.copy();env['KAGGLE_COOPERATIVE_GPU']='0'
-            fraction=.85
-            if key in deferred:fraction=.85
-            env['KAGGLE_GPU_MEMORY_FRACTION']=str(fraction)
-            log=(BASE/key/'train_console.log').open('a',encoding='utf-8')
-            try:
-                child=subprocess.Popen([sys.executable,'-u',str(__file__).replace('run_route_experiments.py','train_route.py'),'--route',key],stdout=log,stderr=subprocess.STDOUT,cwd=str(BASE.parents[2]),env=env)
-                identity=dict(pid=child.pid,create_time=psutil.Process(child.pid).create_time(),memory_fraction=fraction)
-            except Exception:
-                log.close();raise
-            active[key]=dict(process=child,log=log,identity=identity,cfg=cfg,cohort=cohort)
-            if cohort:
-                for entry in active.values():entry['cohort']=True
-            pending.remove(cfg);status['routes'][key]='running'
-            print(f'START {key} pid={child.pid} active={list(active)}',flush=True)
+    def make_report():
+        try:
+            report(status);status.pop('report_error',None)
+        except Exception as exc:
+            status['report_error']=repr(exc);print('REPORT_ERROR',repr(exc),flush=True)
         persist()
-        if completed_any:
-            try:report(status);status.pop('report_error',None)
-            except Exception as exc:status['report_error']=repr(exc)
-        if active:time.sleep(3)
-        elif pending and all(c['dependency'] and not (BASE/'rf/completed.json').exists() for c in pending):
-            for cfg in pending:status['routes'][cfg['id']]='blocked_missing_rf_checkpoint'
-            pending.clear()
-    status.update(stage='completed' if all(v=='completed' for v in status['routes'].values()) else 'needs_attention',updated=time.time(),child_pid=None,active_routes={})
-    atomic_json(BASE/'pipeline_status.json',status);report(status)
+    def stop(signum,frame):
+        atomic_json(BASE/'stop_requested.json',dict(time=time.time(),signal=signum))
+    signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
+    for cfg in manifest['runs']:
+        key=cfg['id'];folder=BASE/key;folder.mkdir(parents=True,exist_ok=True)
+        if status['routes'][key]=='completed':continue
+        if (BASE/'stop_requested.json').exists():break
+        if cfg['dependency'] and not all((BASE/'rf'/name).is_file() for name in ['completed.json','best.pt','best_predictions.json']):
+            status['routes'][key]='blocked_missing_rf_checkpoint';persist();continue
+        env=os.environ.copy();env['KAGGLE_COOPERATIVE_GPU']='0';env['KAGGLE_GPU_MEMORY_FRACTION']='0.85'
+        with (folder/'train_console.log').open('a',encoding='utf-8') as log:
+            child=subprocess.Popen([sys.executable,'-u',str(__file__).replace('run_route_experiments.py','train_route.py'),'--route',key],stdout=log,stderr=subprocess.STDOUT,cwd=str(BASE.parents[2]),env=env)
+            child_id=dict(pid=child.pid,create_time=psutil.Process(child.pid).create_time())
+            status.update(stage=key,child_pid=child.pid,child_create_time=child_id['create_time'],active_routes={key:child_id})
+            status['routes'][key]='running';persist();print(f'START {key} pid={child.pid}',flush=True)
+            code=child.wait()
+        status.update(child_pid=None,active_routes={},exit_code=code)
+        if code==0 and (folder/'completed.json').exists():status['routes'][key]='completed'
+        elif code==0 and (BASE/'stop_requested.json').exists():status['routes'][key]='paused'
+        else:status['routes'][key]='failed'
+        print(f'END {key} status={status["routes"][key]} exit={code}',flush=True)
+        persist();make_report()
+    if (BASE/'stop_requested.json').exists():status['stage']='paused'
+    else:status['stage']='completed' if all(s=='completed' for s in status['routes'].values()) else 'needs_attention'
+    status.update(child_pid=None,active_routes={});persist();make_report()
     print(status,flush=True)
 
 if __name__=='__main__':

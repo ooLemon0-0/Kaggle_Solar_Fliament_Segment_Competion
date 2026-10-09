@@ -5,7 +5,7 @@ epochs: 30
 debug_epochs: 1
 batch_size: 1
 lr: 0.0001
-backbone_weights: 'C:\Users\Administrator\Desktop\Cisdi\DBD\dbd_compositional_dinov3\pretrained\dinov3-vits16-pretrain-lvd1689m'
+backbone_weights: 'output/pretrained/dinov3_vits16'
 hidden_dim: 128
 decoder_layers: 3
 num_queries: 64

@@ -120,15 +120,17 @@ def train(cfg):
     completed=directory/'completed.json'
     if completed.exists():return load_json(completed)
     last=directory/'last.pt'
+    if (BASE/'stop_requested.json').exists():
+        return {'status':'paused','route':cfg['id']}
     if not last.exists() and not (directory/'preflight.json').exists():
         if cfg['kind']=='rf':
-            for size in [1056,960,768]:
+            for size in [cfg['size']]:
                 cfg['size']=size
                 try:probe(cfg,directory);break
                 except torch.OutOfMemoryError:
                     print(f'PREFLIGHT OOM size={size}; retry next predefined size',flush=True)
                     gc.collect();torch.cuda.empty_cache()
-            else:raise RuntimeError('RF route fails all predefined 16GB preflight sizes')
+            else:raise RuntimeError('RF preflight OOM at fixed protocol resolution; do not silently reduce input size')
         else:probe(cfg,directory)
         atomic_json(directory/'config.json',cfg)
     elif last.exists():cfg=load_json(directory/'config.json')
@@ -170,11 +172,22 @@ def train(cfg):
         state['validation_pending']=False
         if state['offset']==len(dataset):state['epoch']+=1;state['offset']=0;state['order']=[]
         checkpoint()
+    def pause_if_requested():
+        if not (BASE/'stop_requested.json').exists(): return False
+        # Revalidate on resume if the saved boundary ended an evaluation epoch/budget.
+        due=(state['epoch']+1)%cfg['eval_every']==0 or state['epoch']+1==cfg['epochs'] or state['train_seconds']>=cfg['hours']*3600
+        if (state['offset']==len(dataset) and due) or state['train_seconds']>=cfg['hours']*3600:
+            state['validation_pending']=True
+        checkpoint()
+        atomic_json(directory/'paused.json',dict(status='paused',time=time.time(),epoch=state['epoch'],offset=state['offset'],updates=state['updates']))
+        print(f'PAUSED {cfg["id"]} safe checkpoint epoch={state["epoch"]} offset={state["offset"]}',flush=True)
+        return True
     logpath=directory/'training_log.csv'
     with logpath.open('a',newline='',encoding='utf-8') as stream:
         writer=csv.DictWriter(stream,fieldnames=['epoch','samples','updates','training_seconds','pq','dice','iou'])
         if stream.tell()==0:writer.writeheader();stream.flush()
         if state.get('validation_pending'):finish_validation(writer,stream)
+        if pause_if_requested():return {'status':'paused'}
         while state['epoch']<cfg['epochs'] and state['train_seconds']<cfg['hours']*3600:
             if not state['order']:
                 state['order']=np.random.permutation(len(dataset)).tolist();state['offset']=0
@@ -206,6 +219,7 @@ def train(cfg):
                     recent=[]
                     atomic_json(directory/'progress.json',dict(stage='training',epoch=state['epoch']+1,sample=position+1,total=len(dataset),training_seconds=state['train_seconds'],time=time.time(),pid=os.getpid()))
                 if window==0 and (position+1)%100==0:checkpoint()
+                if window==0 and pause_if_requested():return {'status':'paused'}
                 if window==0 and state['train_seconds']>=cfg['hours']*3600:break
             epoch_number=state['epoch']+1
             final=state['train_seconds']>=cfg['hours']*3600 or epoch_number==cfg['epochs']
@@ -213,6 +227,7 @@ def train(cfg):
                 state['validation_pending']=True;checkpoint();finish_validation(writer,stream)
             elif state['offset']==len(dataset):state['epoch']+=1;state['offset']=0;state['order']=[]
             checkpoint()
+            if pause_if_requested():return {'status':'paused'}
             if final:break
     result=dict(config=cfg,best_pq=state['best_pq'],best_epoch=state['best_epoch'],completed_epochs=state['epoch'],
                 partial_epoch_samples=state['offset'],optimizer_updates=state['updates'],training_seconds=state['train_seconds'],

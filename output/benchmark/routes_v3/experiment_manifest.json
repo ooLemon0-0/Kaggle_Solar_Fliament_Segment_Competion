@@ -80,7 +80,7 @@
       "dependency": "rf"
     }
   ],
-  "deliverable_dir": "C:\\Users\\Administrator\\Documents\\Codex\\2026-10-07\\files-mentioned-by-the-user-kaggle\\outputs\\routes_v3",
+  "deliverable_dir": "deliverables/routes_v3",
   "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
   "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
   "train_observations": 565,

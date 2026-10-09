@@ -4,7 +4,7 @@ from pathlib import Path
 from src.utils.common import ROOT,digest,split_path
 from src.routes_v3.engine import BASE,atomic_json
 
-dest=Path(r'C:\Users\Administrator\Documents\Codex\2026-10-07\files-mentioned-by-the-user-kaggle\outputs\routes_v3')
+dest=ROOT/'deliverables/routes_v3'
 common=dict(size=1056,epochs=30,hours=4,seed=42,accumulation=4,eval_every=2,lr=1e-4,encoder_lr=1e-5)
 runs=[dict(common,id='rf',kind='rf',dependency=None),
       dict(common,id='flow',kind='flow',size=384,lr=1e-5,encoder_lr=1e-5,dependency=None),

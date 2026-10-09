@@ -1,0 +1,91 @@
+{
+  "immutable_files": {
+    "output/splits/train.json": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+    "output/splits/val.json": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+    "src/evaluation/official_pq.py": "86a8e45f005f9119cccbabe110c2db4c8d097f51444a8da5a32fb098ca455d57",
+    "official/Self_Evaluation_Notebook.ipynb": "ae7c9445b4eee2b77b216df5c9772fdf92fda15611e98abd7ef5f02a4e380801",
+    "official/source_manifest.json": "59d37871222667d931e70ec4a6ff7c07b85c24277f96c819844bfb2e7d054ff2",
+    "official/self_evaluation/kernel-metadata.json": "9410f771d849de130f8a6197e5b44e7e93e988c8fd24e6d5de5ee34e16ea976c",
+    "official/self_evaluation/self-evaluation-notebook.ipynb": "ae7c9445b4eee2b77b216df5c9772fdf92fda15611e98abd7ef5f02a4e380801"
+  },
+  "runs": [
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "rf",
+      "kind": "rf",
+      "dependency": null
+    },
+    {
+      "size": 384,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 1e-05,
+      "encoder_lr": 1e-05,
+      "id": "flow",
+      "kind": "flow",
+      "dependency": null
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 5e-05,
+      "encoder_lr": 1e-06,
+      "id": "sam",
+      "kind": "sam",
+      "dependency": "rf"
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "image_projection",
+      "kind": "image_projection",
+      "dependency": "rf"
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "feature_control",
+      "kind": "feature_control",
+      "dependency": "rf"
+    },
+    {
+      "size": 1056,
+      "epochs": 30,
+      "hours": 4,
+      "seed": 42,
+      "accumulation": 4,
+      "eval_every": 2,
+      "lr": 0.0001,
+      "encoder_lr": 1e-05,
+      "id": "feature_structure",
+      "kind": "feature_structure",
+      "dependency": "rf"
+    }
+  ]
+}

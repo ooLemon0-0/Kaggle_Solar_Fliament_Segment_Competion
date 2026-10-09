@@ -1,0 +1,23 @@
+{
+  "files": {
+    "output/pretrained/routes_v3/rf/rf-detr-seg-small.pt": {
+      "bytes": 135042342,
+      "sha256": "6de3da31b2572cac214a1c76cce4a92a13966d56390ac2b3a3de9a8dc2b2bca3"
+    },
+    "output/pretrained/routes_v3/cellpose/cpdino-vitb": {
+      "bytes": 343599997,
+      "sha256": "3ed4c06a3963ab13ff377d4e2957174aaaf637434eb031ae9931fcbfaf9a217f"
+    },
+    "output/pretrained/routes_v3/sam2_tiny/model.safetensors": {
+      "bytes": 125802132,
+      "sha256": "4ac623b9c086d10c0e55d4bed6144801b9ffc1442f4de67af278b2437ce4046b"
+    },
+    "output/pretrained/routes_v3/sam2_tiny/config.json": {
+      "bytes": 5188,
+      "sha256": "233e4a5e093dee5872ee219994119d8598813151c41e530cf0bf6ff00cfef36f"
+    }
+  },
+  "rf_registry_md5": "0a2a3006381d0c42853907e700eadd08",
+  "cellpose_hf_revision": "7c61431b5fbb078f3296754bd15d9f51b320f837",
+  "cellpose_official_sha256": "3ed4c06a3963ab13ff377d4e2957174aaaf637434eb031ae9931fcbfaf9a217f"
+}
