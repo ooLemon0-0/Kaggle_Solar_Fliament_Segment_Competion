@@ -1,6 +1,6 @@
 # Flow v2：独立追加实验
 
-此版本不修改旧六路线的配置或模型行为。不要在正在训练的 `solar_filament_linux` 中更新代码。新源码在 `solar_filament_source_clean` 中等待旧队列结束，然后独立串行运行。
+Flow版本不修改旧六路线的配置。不要在正在训练的 `solar_filament_linux` 中更新代码。新源码在 `solar_filament_source_clean` 中等待旧队列结束，然后独立串行运行。投影路线失败时，见[投影修复补跑](PROJECTION_REPAIR.md)：新源码修复输入梯度打包，可选择先补跑唯一失败的投影路线，再进入Flow。
 
 ## 技术组合
 
@@ -18,7 +18,7 @@ v2从原预训练重新开始，**不续训旧Flow**。最多30轮或8个准备/
 
 ## 在 AutoDL 上追加，不打断当前训练
 
-先在新源码目录拉取本次Git发布（旧运行目录不动）：
+仅尚未排队的新部署使用以下命令。已有等待器须按[投影修复补跑](PROJECTION_REPAIR.md)先fetch、取消等待器、再merge，不能直接pull：
 
 ```bash
 cd /root/autodl-tmp/solar_filament_source_clean

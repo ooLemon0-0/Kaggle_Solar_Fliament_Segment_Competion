@@ -93,18 +93,28 @@ def probe(cfg,folder):
     counts={}
     for a in dataset.data['annotations']:counts[a['image_id']]=counts.get(a['image_id'],0)+1
     index=max(range(len(dataset)),key=lambda i:counts.get(dataset.images[i]['id'],0))
-    losses=[];torch.cuda.reset_peak_memory_stats();model.training_mode()
+    losses=[];projection_grad_norms=[];torch.cuda.reset_peak_memory_stats();model.training_mode()
     # Worst instance-count image plus a repeated-image optimization check. Smoke artifacts are never reported as formal results.
     for step in range(8):
         item=sample_at(dataset,index,augment=False)
         with torch.autocast('cuda',dtype=torch.bfloat16):loss=model.loss(item)
         if not torch.isfinite(loss):raise FloatingPointError('Nonfinite preflight loss')
-        optimizer.zero_grad(set_to_none=True);loss.backward();norm=torch.nn.utils.clip_grad_norm_(model.parameters(),1.)
+        optimizer.zero_grad(set_to_none=True);loss.backward()
+        if cfg['kind']=='image_projection':
+            gradients=[p.grad for p in model.projector.parameters() if p.grad is not None]
+            magnitude=sum(float(g.detach().float().square().sum()) for g in gradients)**.5
+            if not gradients or not np.isfinite(magnitude) or magnitude<=0:
+                raise FloatingPointError('Projection preflight must backpropagate finite nonzero gradients through frozen RF')
+            if any(p.grad is not None for p in model.core.parameters()):
+                raise RuntimeError('Projection protocol requires frozen RF weights')
+            projection_grad_norms.append(magnitude)
+        norm=torch.nn.utils.clip_grad_norm_(model.parameters(),1.)
         if not torch.isfinite(norm):raise FloatingPointError('Nonfinite preflight gradients')
         optimizer.step();losses.append(float(loss.detach()));print(f'PREFLIGHT {cfg["id"]} step={step+1} loss={float(loss.detach()):.4f}',flush=True)
     evidence=dict(losses=losses,largest_annotation_count=counts[dataset.images[index]['id']],
                   peak_memory_mib=torch.cuda.max_memory_allocated()/2**20,finite=True,
                   optimization_trend='decreasing' if np.mean(losses[-3:])<np.mean(losses[:3]) else 'needs_longer_overfit',debug=True)
+    if projection_grad_norms:evidence['projection_grad_norms']=projection_grad_norms
     with torch.autocast('cuda',dtype=torch.bfloat16):
         if cfg['kind']!='sam':
             key,native=next(native_images());pred=model.predict(native)

@@ -57,7 +57,7 @@ class RFRoute(nn.Module):
         if self.core.class_embed.out_features!=2:self.core.reinitialize_detection_head(2)
         self.cfg=cfg;self.projector=ImageProjector() if cfg['kind']=='image_projection' else nn.Identity()
         if cfg['kind']!='rf':
-            warm=torch.load(cfg.get('warmstart_path',ROOT/'output/benchmark/routes_v3/rf/best.pt'),map_location='cpu',weights_only=False)
+            warm=torch.load(cfg.get('warmstart_path',os.environ.get('SOLAR_RF_WARMSTART',ROOT/'output/benchmark/routes_v3/rf/best.pt')),map_location='cpu',weights_only=False)
             self.core.load_state_dict({k.removeprefix('core.'):v for k,v in warm['model'].items() if k.startswith('core.')})
             self.core.requires_grad_(False)
         if cfg['kind'].startswith('feature'):
@@ -78,6 +78,12 @@ class RFRoute(nn.Module):
     def inputs(self,x):
         x=(x-self.mean)/self.std;x=self.projector(x)
         if isinstance(self.core.segmentation_head,DetailHead):self.core.segmentation_head.image=x
+        if self.cfg['kind']=='image_projection':
+            # Fixed-size batches have no padding. Preserve the projector graph without
+            # RF-DETR's allocate/unbind/copy_ packing, which fails for gradient inputs.
+            from rfdetr.utilities.tensors import NestedTensor
+            mask=torch.zeros((x.shape[0],*x.shape[-2:]),dtype=torch.bool,device=x.device)
+            return NestedTensor(x,mask)
         return x
     def target(self,masks):
         from torchvision.ops import masks_to_boxes
@@ -90,7 +96,14 @@ class RFRoute(nn.Module):
         return {'labels':torch.zeros(n,dtype=torch.int64,device='cuda'),'boxes':boxes,'masks':masks}
     def loss(self,sample):
         x=sample['image'].cuda()[None];target=self.target(sample['instances'])
-        out=self.core(self.inputs(x)); losses=self.criterion(out,[target])
+        if self.cfg['kind']=='image_projection':
+            # The frozen backbone stays in eval mode, which disables its internal
+            # checkpointing. Recompute the frozen consumer while preserving input
+            # gradients and RNG; do not retain all high-resolution activations.
+            from torch.utils.checkpoint import checkpoint
+            out=checkpoint(self.core,self.inputs(x),use_reentrant=False)
+        else:out=self.core(self.inputs(x))
+        losses=self.criterion(out,[target])
         loss=sum(v*self.criterion.weight_dict[k] for k,v in losses.items() if k in self.criterion.weight_dict)
         if self.cfg['kind']=='feature_structure':
             head=self.core.segmentation_head

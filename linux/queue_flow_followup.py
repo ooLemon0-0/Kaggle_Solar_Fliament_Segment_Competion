@@ -26,12 +26,15 @@ def running_jobs(active):
     return jobs
 
 
-def readiness(status,jobs,stop_requested,required_routes):
+def readiness(status,jobs,stop_requested,required_routes,repair_projection=False):
     if jobs:return 'waiting'
+    if stop_requested:return 'blocked_original_stop_request'
     routes=status.get('routes',{})
+    if repair_projection and status.get('stage')=='needs_attention' and set(routes)==set(required_routes):
+        failed={key for key,value in routes.items() if value!='completed'}
+        if failed=={'image_projection'} and routes['image_projection']=='failed':return 'repair_projection'
     if status.get('stage')!='completed' or set(routes)!=set(required_routes) or not all(v=='completed' for v in routes.values()):
         return 'blocked_original_incomplete'
-    if stop_requested:return 'blocked_original_stop_request'
     return 'ready'
 
 
@@ -69,11 +72,17 @@ def source_unchanged(commit,fingerprints):
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--active-project',type=Path,required=True)
-    parser.add_argument('--prepare-only',action='store_true');args=parser.parse_args()
+    parser.add_argument('--prepare-only',action='store_true')
+    parser.add_argument('--repair-projection',action='store_true',help='Repair the sole failed image_projection after all other original routes finish, then run Flow')
+    args=parser.parse_args()
     active,commit,fingerprints=prepare(args.active_project)
     required_routes=[c['id'] for c in json.loads((active/'output/benchmark/routes_v3/experiment_manifest.json').read_text())['runs']]
     base=ROOT/'output/benchmark/flow_followup_v1';base.mkdir(parents=True,exist_ok=True)
-    if args.prepare_only:print('FOLLOWUP_INPUTS_READY',commit,flush=True);return
+    if args.prepare_only:
+        with file_lock(base/'queue_wrapper.lock',blocking=False):
+            if (base/'stop_requested.json').exists():raise RuntimeError('Existing follow-up stop request; inspect before rearming')
+            print('FOLLOWUP_INPUTS_READY',commit,'repair_projection='+str(args.repair_projection),flush=True)
+        return
     stage_file=base/'queue_status.json'
     def state(stage,**extra):
         temporary=stage_file.with_suffix('.tmp')
@@ -81,7 +90,7 @@ def main():
         temporary.replace(stage_file)
     # A dedicated wrapper lock rejects duplicate waiting processes too.
     with file_lock(base/'queue_wrapper.lock',blocking=False):
-        state('waiting');last_stage=None
+        state('waiting',repair_projection=args.repair_projection);last_stage=None
         while True:
             if (base/'stop_requested.json').exists():state('cancelled');print('FOLLOWUP_CANCELLED');return
             if not source_unchanged(commit,fingerprints):raise RuntimeError('Pinned source changed after arming; refusing mixed-version follow-up')
@@ -91,7 +100,7 @@ def main():
             jobs=running_jobs(active)
             stage=status.get('stage','unknown')
             if stage!=last_stage:print('WAIT_ORIGINAL',stage,'actual_jobs',len(jobs),flush=True);last_stage=stage
-            decision=readiness(status,jobs,(original_base/'stop_requested.json').exists(),required_routes)
+            decision=readiness(status,jobs,(original_base/'stop_requested.json').exists(),required_routes,args.repair_projection)
             if decision=='waiting':time.sleep(15);continue
             if decision=='blocked_original_incomplete':
                 state(decision,original_stage=stage)
@@ -102,12 +111,28 @@ def main():
                 with contextlib.ExitStack() as locks:
                     locks.enter_context(file_lock(original_base/'runner_process.lock',blocking=False))
                     locks.enter_context(file_lock(original_base/'gpu_operation.lock',blocking=False))
-                    if running_jobs(active):continue
-                    state('running')
+                    decision=readiness(json.loads(status_path.read_text()),running_jobs(active),(original_base/'stop_requested.json').exists(),required_routes,args.repair_projection)
+                    if decision=='waiting':continue
+                    if decision not in {'ready','repair_projection'}:state(decision);return
                     env=os.environ.copy()
                     env.update(CUDA_VISIBLE_DEVICES='0',KAGGLE_COOPERATIVE_GPU='0',KAGGLE_GPU_MEMORY_FRACTION='0.85',
                         HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',MPLCONFIGDIR=str(ROOT/'work/matplotlib'),
                         SOLAR_FOLLOWUP_GUARD_PID=str(os.getpid()),SOLAR_FOLLOWUP_GUARD_TIME=str(psutil.Process().create_time()))
+                    if (base/'stop_requested.json').exists():state('cancelled');return
+                    if not source_unchanged(commit,fingerprints):raise RuntimeError('Pinned source changed before launch')
+                    if decision=='repair_projection':
+                        state('repair_projection')
+                        print('START_PROJECTION_REPAIR; original GPU and runner locks held',flush=True)
+                        repaired=subprocess.run([sys.executable,'-u',str(ROOT/'scripts/run_projection_repair.py'),'--active-project',str(active)],cwd=ROOT,env=env)
+                        if repaired.returncode:
+                            state('blocked_projection_repair',exit_code=repaired.returncode)
+                            raise RuntimeError('Projection repair failed or paused; Flow will not start')
+                        status=json.loads(status_path.read_text())
+                        if readiness(status,running_jobs(active),(original_base/'stop_requested.json').exists(),required_routes)!='ready':
+                            state('blocked_after_projection_repair');return
+                        print('PROJECTION_REPAIR_COMPLETED; next Flow v2',flush=True)
+                    if (base/'stop_requested.json').exists():state('cancelled');return
+                    state('running')
                     result=subprocess.run([sys.executable,'-u',str(ROOT/'scripts/run_flow_followup.py'),'--active-project',str(active)],cwd=ROOT,env=env)
                     stage='completed' if result.returncode==0 and (base/'completed.json').exists() else 'paused' if result.returncode==0 and (base/'stop_requested.json').exists() else 'needs_attention'
                     state(stage,exit_code=result.returncode)
