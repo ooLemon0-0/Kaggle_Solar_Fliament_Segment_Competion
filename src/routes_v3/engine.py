@@ -15,7 +15,7 @@ from src.evaluation.adapter import evaluate_predictions
 from src.routes_v3.models import build
 from src.routes_v3.resources import gpu_window, gpu_wait_seconds, exclusive_gpu
 
-BASE=ROOT/'output/benchmark/routes_v3'
+BASE=Path(os.environ.get('SOLAR_ROUTE_OUTPUT_ROOT', ROOT/'output/benchmark/routes_v3'))
 
 def atomic_json(path,value):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
@@ -58,6 +58,7 @@ def evaluate(model,cfg,directory,epoch):
     prediction_path=directory/'validation_predictions.json'
     atomic_json(prediction_path,dict(predictions=predictions,split_sha256=digest(split_path('val')),metadata=metadata))
     metrics=evaluate_predictions(prediction_path)
+    if cfg.get('flow_version')==2:metrics['validation_wall_seconds']=time.monotonic()-started
     atomic_json(directory/f'validation_epoch_{epoch}.json',metrics)
     print(f'OFFICIAL epoch={epoch} PQ={metrics["pq"]:.6f} Dice={metrics["dice"]:.6f} IoU={metrics["iou"]:.6f}',flush=True)
     return metrics
@@ -84,6 +85,7 @@ def sample_at(dataset,index,augment=True):
 
 @exclusive_gpu
 def probe(cfg,folder):
+    probe_started=time.monotonic()
     cfg=cfg.copy();cfg['debug_prediction_confidence']=0.
     seed_everything(42)
     with gpu_window():model=build(cfg);optimizer=optimizer_for(model,cfg)
@@ -111,6 +113,7 @@ def probe(cfg,folder):
                 assert instance['rle']['size']==[2048,2048] and decode_mask(instance['rle']).any()
             evidence['native_prediction_count']=len(pred)
     if cfg['kind']=='rf':atomic_torch(folder/'debug_probe.pt',dict(model=model.state_dict(),debug=True))
+    if cfg.get('flow_version')==2:evidence['preflight_wall_seconds']=time.monotonic()-probe_started
     atomic_json(folder/'preflight.json',evidence)
     del model,optimizer,dataset;gc.collect();torch.cuda.empty_cache()
     return evidence

@@ -1,5 +1,6 @@
 import os
 import math
+from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
@@ -7,7 +8,7 @@ from torch.nn import functional as F
 from src.utils.common import ROOT
 from src.data.dataset import encode_mask, decode_mask
 
-ASSETS=ROOT/'output/pretrained/routes_v3'
+ASSETS=Path(os.environ.get('SOLAR_PRETRAINED_ROOT', ROOT/'output/pretrained/routes_v3'))
 os.environ['RF_HOME']=str(ASSETS/'rf')
 os.environ['CELLPOSE_LOCAL_MODELS_PATH']=str(ASSETS/'cellpose')
 
@@ -230,5 +231,8 @@ class FlowRoute(nn.Module):
 
 def build(cfg):
     if cfg['kind']=='sam':return SAMRoute(cfg).cuda()
+    if cfg['kind']=='flow' and cfg.get('flow_version')==2:
+        from src.routes_v3.flow_v2 import FlowV2Route
+        return FlowV2Route(cfg).cuda()
     if cfg['kind']=='flow':return FlowRoute(cfg).cuda()
     return RFRoute(cfg).cuda()

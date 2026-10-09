@@ -1,5 +1,5 @@
 # Downloaded data, generated results, logs and machine environments
-/data/
+/data
 /output/
 /work/
 /logs/

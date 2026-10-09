@@ -1,0 +1,22 @@
+{
+  "protocol_version": "flow_followup_v1",
+  "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce",
+  "val_split_sha256": "0540d1738d4300258ab27c5cb87263b22cdd5b53f6e87bfe509ce6d34b0d98ef",
+  "runs": [{
+    "id": "flow_v2", "kind": "flow", "flow_version": 2,
+    "size": 768, "epochs": 30, "hours": 8, "seed": 42,
+    "accumulation": 4, "eval_every": 2, "lr": 0.00002, "encoder_lr": 0.00002,
+    "dependency": null, "niter": 2000,
+    "target_cache": "output/benchmark/flow_followup_v1/target_cache",
+    "train_split_sha256": "272d31988572b8dc9374aa5363e9b98acb4abaf61314a4d70d1363277171b0ce"
+  }],
+  "decoder_candidates": [
+    {"id": "n200_f04", "niter": 200, "flow_threshold": 0.4},
+    {"id": "n1000_f04", "niter": 1000, "flow_threshold": 0.4},
+    {"id": "n2000_f04", "niter": 2000, "flow_threshold": 0.4},
+    {"id": "n2000_f08", "niter": 2000, "flow_threshold": 0.8},
+    {"id": "n2000_f00", "niter": 2000, "flow_threshold": 0.0}
+  ],
+  "selection": "Highest full original validation PQ among old Flow, old-checkpoint decoder candidates, and flow_v2 decoder candidates; validation-selected baseline, no test tuning. Original results retained.",
+  "budget": "One fresh flow_v2 training run, at most 30 epochs or 8 preparation/computation hours; original run used at most 30/4h. Record preflight, validation, decoder search and original Flow search costs separately. No cumulative budget fairness claim."
+}
