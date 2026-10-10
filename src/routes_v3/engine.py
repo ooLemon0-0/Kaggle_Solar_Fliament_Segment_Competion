@@ -73,9 +73,15 @@ def optimizer_for(model,cfg):
     if head:groups.append(dict(params=head,lr=cfg['lr']))
     return torch.optim.AdamW(groups,weight_decay=1e-4)
 
+def training_dataset(cfg):
+    native=cfg['kind'] in ['sam','flow','native_projection']
+    dataset=FilamentDataset(split_path('train'),size=2048 if native else cfg['size'])
+    dataset.augment_native=cfg['kind']=='native_projection'
+    return dataset
+
 def sample_at(dataset,index,augment=True):
     item=dataset[index]
-    if augment and dataset.size!=2048:
+    if augment and (dataset.size!=2048 or getattr(dataset,'augment_native',False)):
         turns=np.random.randint(4)
         for key in ['image','instances','semantic']:item[key]=torch.rot90(item[key],turns,(-2,-1))
         if np.random.rand()<.5:
@@ -89,12 +95,18 @@ def probe(cfg,folder):
     cfg=cfg.copy();cfg['debug_prediction_confidence']=0.
     seed_everything(42)
     with gpu_window():model=build(cfg);optimizer=optimizer_for(model,cfg)
-    dataset=FilamentDataset(split_path('train'),size=2048 if cfg['kind'] in ['sam','flow'] else cfg['size'])
+    dataset=training_dataset(cfg)
     counts={}
     for a in dataset.data['annotations']:counts[a['image_id']]=counts.get(a['image_id'],0)+1
     index=max(range(len(dataset)),key=lambda i:counts.get(dataset.images[i]['id'],0))
     losses=[];projection_grad_norms=[];mask_grad_norms=[];torch.cuda.reset_peak_memory_stats();model.training_mode()
     frozen_before={};head_before={}
+    if cfg['kind']=='native_projection':
+        trainable=[name for name,p in model.named_parameters() if p.requires_grad]
+        if not trainable or any(not name.startswith('core.segmentation_head.') for name in trainable):
+            raise RuntimeError('P0 must train only native projection and mask head')
+        frozen_before={name:p.detach().cpu().clone() for name,p in model.named_parameters() if not p.requires_grad}
+        head_before={name:p.detach().cpu().clone() for name,p in model.named_parameters() if p.requires_grad}
     if cfg['kind']=='mask_control':
         from src.routes_v3.models import DetailHead
         trainable=[name for name,p in model.named_parameters() if p.requires_grad]
@@ -110,6 +122,17 @@ def probe(cfg,folder):
         with torch.autocast('cuda',dtype=torch.bfloat16):loss=model.loss(item)
         if not torch.isfinite(loss):raise FloatingPointError('Nonfinite preflight loss')
         optimizer.zero_grad(set_to_none=True);loss.backward()
+        if cfg['kind']=='native_projection':
+            head=model.core.segmentation_head
+            gradients=[p.grad for p in head.fuse.parameters() if p.grad is not None]
+            magnitude=sum(float(g.detach().float().square().sum()) for g in gradients)**.5
+            if not gradients or not np.isfinite(magnitude) or magnitude<=0:
+                raise FloatingPointError('Native projection requires finite nonzero fusion gradients')
+            if any(p.grad is not None for p in model.parameters() if not p.requires_grad):
+                raise RuntimeError('P0 frozen localization received gradients')
+            if head.last_grid!=[512,512] or list(item['instances'].shape[-2:])!=[2048,2048]:
+                raise RuntimeError('Native grid/target unexpectedly resized')
+            projection_grad_norms.append(magnitude)
         if cfg['kind']=='image_projection':
             gradients=[p.grad for p in model.projector.parameters() if p.grad is not None]
             magnitude=sum(float(g.detach().float().square().sum()) for g in gradients)**.5
@@ -133,6 +156,17 @@ def probe(cfg,folder):
                   peak_memory_mib=torch.cuda.max_memory_allocated()/2**20,finite=True,
                   optimization_trend='decreasing' if np.mean(losses[-3:])<np.mean(losses[:3]) else 'needs_longer_overfit',debug=True)
     if projection_grad_norms:evidence['projection_grad_norms']=projection_grad_norms
+    if cfg['kind']=='native_projection':
+        current=dict(model.named_parameters())
+        if not all(torch.equal(value,current[name].detach().cpu()) for name,value in frozen_before.items()):
+            raise RuntimeError('P0 changed frozen localization weights')
+        pixel_names=[name for name in head_before if '.pixel.' in name]
+        pixel_changed=any(not torch.equal(head_before[name],current[name].detach().cpu()) for name in pixel_names)
+        if not pixel_changed:raise RuntimeError('Native pixel stem did not learn after eight steps')
+        evidence.update(native_image_size=2048,context_size=cfg['size'],mask_grid=[512,512],
+                        frozen_localization_unchanged=True,pixel_stem_updated=True,
+                        trainable_parameter_names=list(head_before))
+        del frozen_before,head_before,current
     if cfg['kind']=='mask_control':
         current=dict(model.named_parameters())
         frozen_unchanged=all(torch.equal(value,current[name].detach().cpu()) for name,value in frozen_before.items())
@@ -178,7 +212,7 @@ def train(cfg):
     else:atomic_json(directory/'config.json',cfg)
     seed_everything(42)
     with gpu_window():model=build(cfg);optimizer=optimizer_for(model,cfg)
-    dataset=FilamentDataset(split_path('train'),size=2048 if cfg['kind'] in ['sam','flow'] else cfg['size'])
+    dataset=training_dataset(cfg)
     state=dict(epoch=0,offset=0,order=[],train_seconds=0.,best_pq=-1.,best_epoch=None,updates=0,
                train_split_sha256=digest(split_path('train')),val_split_sha256=digest(split_path('val')),validation_pending=False)
     if last.exists():

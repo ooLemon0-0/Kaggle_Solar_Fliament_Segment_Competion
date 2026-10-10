@@ -1,0 +1,6 @@
+{
+  "id": "native_projection", "kind": "native_projection", "dependency": "rf_1536",
+  "size": 1536, "native_size": 2048, "epochs": 12, "hours": 2,
+  "seed": 42, "accumulation": 4, "eval_every": 2,
+  "lr": 0.0001, "encoder_lr": 0.00001
+}

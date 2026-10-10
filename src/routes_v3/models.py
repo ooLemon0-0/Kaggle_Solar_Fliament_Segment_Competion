@@ -246,6 +246,9 @@ class FlowRoute(nn.Module):
         return sorted(instances,key=lambda i:i['score'],reverse=True)[:64]
 
 def build(cfg):
+    if cfg['kind']=='native_projection':
+        from src.routes_v3.native_projection import NativeProjectionRoute
+        return NativeProjectionRoute(cfg).cuda()
     if cfg['kind']=='sam':return SAMRoute(cfg).cuda()
     if cfg['kind']=='flow' and cfg.get('flow_version')==2:
         from src.routes_v3.flow_v2 import FlowV2Route

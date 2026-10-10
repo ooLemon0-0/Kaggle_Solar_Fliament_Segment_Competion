@@ -25,7 +25,7 @@ JOB_NAMES = {
     'run_route_experiments.py', 'train_route.py', 'evaluate_routes.py',
     'queue_flow_followup.py', 'run_flow_followup.py', 'run_projection_repair.py',
     'run_full_baselines.py', 'train.py', 'run_rf_resolution.py',
-    'run_mask_control.py',
+    'run_mask_control.py', 'run_native_projection.py',
 }
 
 
@@ -177,6 +177,9 @@ def recovered_wall(costs, now):
 
 
 def report_completed(cfg, baseline_done, baseline_metrics):
+    if cfg.get('kind')=='native_projection':
+        from scripts.native_projection_support import report
+        return report(BASE,cfg,baseline_done,baseline_metrics,read,write)
     # Only cached masks/metrics are read. No model load, inference or retraining.
     from src.routes_v3.diagnostics import compare_artifacts
     compare_artifacts()
@@ -232,13 +235,16 @@ def report_completed(cfg, baseline_done, baseline_metrics):
 
 def main(experiment='rf_resolution'):
     global BASE
-    if experiment not in {'rf_resolution','mask_control'}:
+    if experiment not in {'rf_resolution','mask_control','native_projection'}:
         raise ValueError('Unknown experiment')
     if experiment=='mask_control':
         BASE=ROOT/'output/benchmark/mask_control_v1'
+    if experiment=='native_projection':
+        BASE=ROOT/'output/benchmark/native_projection_v1'
     label='M0_MASK_CONTROL' if experiment=='mask_control' else 'RF_1536'
     parser = argparse.ArgumentParser()
     parser.add_argument('--active-project', type=Path, required=True)
+    parser.add_argument('--rf-project', type=Path, default=Path('/root/autodl-tmp/solar_filament_rf1536'))
     parser.add_argument('--followup-project', type=Path,
                         default=Path('/root/autodl-tmp/solar_filament_source_clean'))
     parser.add_argument('--prepare-only', action='store_true', help='CPU checks only')
@@ -252,11 +258,23 @@ def main(experiment='rf_resolution'):
         for path in [original_base / 'runner_process.lock', original_base / 'gpu_operation.lock',
                      followup / 'output/benchmark/flow_followup_v1/queue_wrapper.lock',
                      BASE / 'runner_process.lock']:
-            locks.enter_context(file_lock(path, blocking=False))
+            try:
+                locks.enter_context(file_lock(path, blocking=False))
+            except BlockingIOError as exc:
+                raise RuntimeError('Experiment lock held: '+str(path)+'; real jobs: '+json.dumps(running_jobs())+
+                                   '; leave the running job and lock files intact') from exc
         jobs = running_jobs()
         if jobs:
             raise RuntimeError('Existing experiment/waiter; duplicate launch refused: ' + json.dumps(jobs))
-        cfg, original_manifest, baseline_done, baseline_metrics = inspect_inputs(active,experiment)
+        cfg, original_manifest, baseline_done, baseline_metrics = inspect_inputs(
+            active,'rf_resolution' if experiment=='native_projection' else experiment)
+        reference=None
+        if experiment=='native_projection':
+            from scripts.native_projection_support import inspect_rf1536
+            baseline_done,baseline_metrics,reference=inspect_rf1536(
+                args.rf_project.resolve(),cfg,original_manifest,read,sha)
+            cfg=read(ROOT/'configs/native_projection_v1.json')
+            label='P0_NATIVE_PROJECTION'
         source = source_record()
         folder = BASE / cfg['id']
         if (folder / 'completed.json').exists():
@@ -277,12 +295,15 @@ def main(experiment='rf_resolution'):
         previous = read(BASE / 'experiment_manifest.json') if (BASE / 'experiment_manifest.json').exists() else None
         if previous and (previous['source'] != source or previous['runs'] != [cfg]):
             raise RuntimeError('Pinned source/config changed; resume the original commit in its checkout')
+        if previous and experiment=='native_projection' and previous.get('rf1536_reference')!=reference:
+            raise RuntimeError('Inherited RF1536 artifacts changed; preserve original experiment provenance')
         costs = read(BASE / 'costs.json') if (BASE / 'costs.json').exists() else {'wall_seconds': 0.}
         costs['wall_seconds'] = recovered_wall(costs, time.time())
         costs.pop('active_since', None)
-        remaining = 6 * 3600 - costs['wall_seconds']
+        wall_hours=4 if experiment=='native_projection' else 6
+        remaining = wall_hours * 3600 - costs['wall_seconds']
         if remaining <= 0:
-            raise RuntimeError('Six-hour cumulative wall budget exhausted; review before adding budget')
+            raise RuntimeError('Cumulative wall budget exhausted; review before adding budget')
         if (BASE / 'stop_requested.json').exists() and not args.resume:
             raise RuntimeError('Experiment stop request exists; inspect before explicit safe resume')
         link_inputs(active)
@@ -295,6 +316,8 @@ def main(experiment='rf_resolution'):
         os.environ.pop('SOLAR_RF_WARMSTART', None)
         if experiment=='mask_control':
             os.environ['SOLAR_RF_WARMSTART']=str(original_base/'rf/best.pt')
+        if experiment=='native_projection':
+            os.environ['SOLAR_RF_WARMSTART']=reference['warmstart_path']
         os.environ['SOLAR_PRETRAINED_ROOT'] = str(active / 'output/pretrained/routes_v3')
         folder.mkdir(parents=True, exist_ok=True)
         manifest = dict(original_manifest, runs=[cfg], source=source, active_project=str(active),
@@ -313,6 +336,11 @@ def main(experiment='rf_resolution'):
                             hypothesis='Same trained RF, frozen backbone/query/box/class heads; only original mask head learns, no added branch.',
                             warmstart_path=str(warm),warmstart_sha256=warm_sha,detail_reference=detail_metrics,
                             inherited_rf_training_hours=baseline_done['training_seconds']/3600)
+        if experiment=='native_projection':
+            manifest.update(experiment='native_projection',deliverable_dir=str(ROOT/'deliverables/native_projection_v1'),
+                            hypothesis='Frozen RF1536 localization plus native2048 pixel projection into stride-4 instance masks; no DINO/auxiliary losses.',
+                            rf1536_reference=reference,wall_budget_seconds=wall_hours*3600,
+                            inherited_rf_training_hours=baseline_done['training_seconds']/3600)
         write(BASE / 'experiment_manifest.json', manifest)
         write(folder / 'config.json', cfg)
         identity = dict(pid=os.getpid(), create_time=psutil.Process().create_time(), source_commit=source['commit'])
@@ -326,7 +354,7 @@ def main(experiment='rf_resolution'):
             print('STOP_REQUESTED', reason, '; safe pause, no next-stage launch', flush=True)
         def deadline():
             if not deadline_done.wait(remaining):
-                stop('six_hour_cumulative_wall_budget')
+                stop('cumulative_wall_budget')
         signal.signal(signal.SIGTERM, lambda *_: stop('SIGTERM'))
         signal.signal(signal.SIGINT, lambda *_: stop('SIGINT'))
         if args.resume:
@@ -347,6 +375,16 @@ def main(experiment='rf_resolution'):
                                                 original_versions=original_manifest.get('versions', {}),
                                                 pretrained_sha256=sha(weight)))
             torch.cuda.set_per_process_memory_fraction(.85, 0)
+            if experiment=='native_projection':
+                warm=torch.load(reference['warmstart_path'],map_location='cpu',weights_only=False)
+                if warm.get('config')!=baseline_done['config'] or warm.get('debug'):
+                    raise RuntimeError('P0 requires the completed formal RF1536 checkpoint')
+                if warm['state']['best_epoch']!=baseline_done['best_epoch'] or abs(warm['state']['best_pq']-baseline_metrics['pq'])>1e-9:
+                    raise RuntimeError('RF1536 checkpoint is not the selected best')
+                for split in ['train','val']:
+                    if warm['state'][split+'_split_sha256']!=original_manifest[split+'_split_sha256']:
+                        raise RuntimeError('RF1536 checkpoint split mismatch')
+                del warm
             if experiment=='mask_control':
                 warm=torch.load(original_base/'rf/best.pt',map_location='cpu',weights_only=False)
                 if warm.get('config')!=next(c for c in read(ROOT/'linux/integrity.json')['runs'] if c['id']=='rf'):

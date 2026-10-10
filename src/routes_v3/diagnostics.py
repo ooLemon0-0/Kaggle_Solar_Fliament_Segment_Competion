@@ -67,7 +67,7 @@ def detection_diagnostic():
     atomic_json(BASE/'rf/detection_diagnostics.json',dict(mask_derived_box_recall_iou_gt_05=hits/count,total_gt=count,recalled=hits,
                score_threshold=.25,per_group=per_group,definition='Any predicted RF box overlaps GT-derived box at IoU>0.5; diagnostic only, not official PQ.'))
 
-def visualize():
+def visualize(references=None):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -75,6 +75,10 @@ def visualize():
     available=[c['id'] for c in manifest['runs'] if (BASE/c['id']/'best_predictions.json').exists()]
     if not available:return
     predictions={r:{p['image_id']:p['instances'] for p in load_json(BASE/r/'best_predictions.json')['predictions']} for r in available}
+    for name,path in (references or {}).items():
+        if name in predictions:raise ValueError('Duplicate visual reference name')
+        predictions[name]={p['image_id']:p['instances'] for p in load_json(path)['predictions']}
+        available.insert(0,name)
     selected=[];seen=set()
     for im in val['images']:
         key=observation(im)

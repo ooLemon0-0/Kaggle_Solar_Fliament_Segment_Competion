@@ -8,7 +8,7 @@
 
 七组完成后的单个RF1536分辨率实验、线上独立工作树启动、一次状态查询与安全续跑，见 [RF_RESOLUTION.md](RF_RESOLUTION.md)。它不会自动启动其他路线。
 
-当前优先第一组已改为同RF checkpoint的原mask-head-only对照M0，隔离细节分支与额外训练收益；线上启动与结果查看见 [MASK_CONTROL.md](MASK_CONTROL.md)。RF1536仍可作为后续对照。
+当前主线聚焦原生图投影与DINO双头。已完成RF1536成为P0的冻结全图定位基础；第一组native2048投影的线上独立启动、预算、状态和评估见 [NATIVE_PROJECTION.md](NATIVE_PROJECTION.md)。P0结束不自动启动DINO。此前M0对照说明保留在 [MASK_CONTROL.md](MASK_CONTROL.md)；若它已经运行，须等待结束，不并发或覆盖。
 
 Git 版不带原始数据、标注、权重、断点和日志。`linux/download_data.py` 下载数据后自动根据 `configs/frozen_split_manifest.json` 重建原固定 split，校验 SHA256。要继续旧实验，需另外提供原资产和断点；源码克隆本身不会续训。
 
