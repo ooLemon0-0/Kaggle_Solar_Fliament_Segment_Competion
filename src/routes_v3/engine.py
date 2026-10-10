@@ -93,7 +93,17 @@ def probe(cfg,folder):
     counts={}
     for a in dataset.data['annotations']:counts[a['image_id']]=counts.get(a['image_id'],0)+1
     index=max(range(len(dataset)),key=lambda i:counts.get(dataset.images[i]['id'],0))
-    losses=[];projection_grad_norms=[];torch.cuda.reset_peak_memory_stats();model.training_mode()
+    losses=[];projection_grad_norms=[];mask_grad_norms=[];torch.cuda.reset_peak_memory_stats();model.training_mode()
+    frozen_before={};head_before={}
+    if cfg['kind']=='mask_control':
+        from src.routes_v3.models import DetailHead
+        trainable=[name for name,p in model.named_parameters() if p.requires_grad]
+        if not trainable or any(not name.startswith('core.segmentation_head.') for name in trainable):
+            raise RuntimeError('M0 must train only the original mask head')
+        if not isinstance(model.projector,torch.nn.Identity) or isinstance(model.core.segmentation_head,DetailHead):
+            raise RuntimeError('M0 cannot contain added projection/detail layers')
+        frozen_before={name:p.detach().cpu().clone() for name,p in model.named_parameters() if not p.requires_grad}
+        head_before={name:p.detach().cpu().clone() for name,p in model.named_parameters() if p.requires_grad}
     # Worst instance-count image plus a repeated-image optimization check. Smoke artifacts are never reported as formal results.
     for step in range(8):
         item=sample_at(dataset,index,augment=False)
@@ -108,6 +118,14 @@ def probe(cfg,folder):
             if any(p.grad is not None for p in model.core.parameters()):
                 raise RuntimeError('Projection protocol requires frozen RF weights')
             projection_grad_norms.append(magnitude)
+        if cfg['kind']=='mask_control':
+            if any(p.grad is not None for p in model.parameters() if not p.requires_grad):
+                raise RuntimeError('M0 frozen parameter received a gradient')
+            gradients=[p.grad for p in model.parameters() if p.requires_grad and p.grad is not None]
+            magnitude=sum(float(g.detach().float().square().sum()) for g in gradients)**.5
+            if not gradients or not np.isfinite(magnitude) or magnitude<=0:
+                raise FloatingPointError('M0 requires finite nonzero mask-head gradients')
+            mask_grad_norms.append(magnitude)
         norm=torch.nn.utils.clip_grad_norm_(model.parameters(),1.)
         if not torch.isfinite(norm):raise FloatingPointError('Nonfinite preflight gradients')
         optimizer.step();losses.append(float(loss.detach()));print(f'PREFLIGHT {cfg["id"]} step={step+1} loss={float(loss.detach()):.4f}',flush=True)
@@ -115,6 +133,16 @@ def probe(cfg,folder):
                   peak_memory_mib=torch.cuda.max_memory_allocated()/2**20,finite=True,
                   optimization_trend='decreasing' if np.mean(losses[-3:])<np.mean(losses[:3]) else 'needs_longer_overfit',debug=True)
     if projection_grad_norms:evidence['projection_grad_norms']=projection_grad_norms
+    if cfg['kind']=='mask_control':
+        current=dict(model.named_parameters())
+        frozen_unchanged=all(torch.equal(value,current[name].detach().cpu()) for name,value in frozen_before.items())
+        head_changed=any(not torch.equal(value,current[name].detach().cpu()) for name,value in head_before.items())
+        if not frozen_unchanged or not head_changed:
+            raise RuntimeError('M0 preflight changed frozen weights or failed to update its mask head')
+        evidence.update(mask_head_grad_norms=mask_grad_norms,frozen_weights_unchanged=True,
+                        original_mask_head_updated=True,no_added_detail_or_projection=True,
+                        trainable_parameter_names=list(head_before))
+        del frozen_before,head_before,current
     with torch.autocast('cuda',dtype=torch.bfloat16):
         if cfg['kind']!='sam':
             key,native=next(native_images());pred=model.predict(native)

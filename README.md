@@ -8,6 +8,8 @@
 
 七组完成后的单个RF1536分辨率实验、线上独立工作树启动、一次状态查询与安全续跑，见 [RF_RESOLUTION.md](RF_RESOLUTION.md)。它不会自动启动其他路线。
 
+当前优先第一组已改为同RF checkpoint的原mask-head-only对照M0，隔离细节分支与额外训练收益；线上启动与结果查看见 [MASK_CONTROL.md](MASK_CONTROL.md)。RF1536仍可作为后续对照。
+
 Git 版不带原始数据、标注、权重、断点和日志。`linux/download_data.py` 下载数据后自动根据 `configs/frozen_split_manifest.json` 重建原固定 split，校验 SHA256。要继续旧实验，需另外提供原资产和断点；源码克隆本身不会续训。
 
 已有服务器队列运行时，请克隆到独立目录。不要在运行目录更新源码，也不要在新克隆目录再启动一份训练。

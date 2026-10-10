@@ -25,6 +25,7 @@ JOB_NAMES = {
     'run_route_experiments.py', 'train_route.py', 'evaluate_routes.py',
     'queue_flow_followup.py', 'run_flow_followup.py', 'run_projection_repair.py',
     'run_full_baselines.py', 'train.py', 'run_rf_resolution.py',
+    'run_mask_control.py',
 }
 
 
@@ -58,9 +59,13 @@ def running_jobs():
     return jobs
 
 
-def configuration(original, expected):
+def configuration(original, expected, experiment='rf_resolution'):
     if original != expected or original['size'] != 1056:
         raise RuntimeError('Original RF recipe differs from the frozen 1056 baseline')
+    if experiment=='mask_control':
+        return dict(original,id='mask_control',kind='mask_control',dependency='rf')
+    if experiment!='rf_resolution':
+        raise ValueError('Unknown experiment: '+experiment)
     return dict(original, id='rf_1536', size=1536)
 
 
@@ -79,7 +84,7 @@ def link_inputs(active):
             target.symlink_to(source, target_is_directory=True)
 
 
-def inspect_inputs(active):
+def inspect_inputs(active, experiment='rf_resolution'):
     if active == ROOT.resolve():
         raise RuntimeError('Use a separate Git source checkout, not the original training directory')
     original_base = active / 'output/benchmark/routes_v3'
@@ -101,7 +106,7 @@ def inspect_inputs(active):
         if manifest[which + '_split_sha256'] != expected:
             raise RuntimeError('Original manifest split mismatch: ' + which)
     expected_cfg = next(c for c in integrity['runs'] if c['id'] == 'rf')
-    cfg = configuration(read(original_base / 'rf/config.json'), expected_cfg)
+    cfg = configuration(read(original_base / 'rf/config.json'), expected_cfg, experiment)
     done = read(original_base / 'rf/completed.json')
     if done.get('status') != 'completed' or done['config'] != expected_cfg:
         raise RuntimeError('Original RF completion/config mismatch')
@@ -116,6 +121,15 @@ def inspect_inputs(active):
     weight = 'output/pretrained/routes_v3/rf/rf-detr-seg-small.pt'
     if sha(active / weight) != assets[weight]['sha256']:
         raise RuntimeError('Original RF pretrained weight mismatch')
+    if experiment=='mask_control':
+        expected_detail=next(c for c in integrity['runs'] if c['id']=='feature_control')
+        if read(original_base/'feature_control/config.json')!=expected_detail:
+            raise RuntimeError('Existing detail control differs from frozen comparison recipe')
+        for name in ['completed.json','best_metrics.json','best_predictions.json']:
+            if not (original_base/'feature_control'/name).is_file():
+                raise RuntimeError('Missing completed detail control: '+name)
+        if not (original_base/'rf/best.pt').is_file():
+            raise RuntimeError('M0 requires the original trained RF best.pt')
     return cfg, manifest, done, read(original_base / 'rf/best_metrics.json')
 
 
@@ -130,7 +144,7 @@ def source_record():
 
 def validate_existing(folder, cfg, resume):
     if (folder / 'config.json').exists() and read(folder / 'config.json') != cfg:
-        raise RuntimeError('Existing RF 1536 config mismatch')
+        raise RuntimeError('Existing experiment config mismatch')
     last = folder / 'last.pt'
     if last.exists() and not resume:
         raise RuntimeError('Checkpoint exists: use --resume to continue, never restart over it')
@@ -183,13 +197,46 @@ def report_completed(cfg, baseline_done, baseline_metrics):
                       automatic_next_stage=False,
                       limitations=['Single seed; .005 is a spending gate, not statistical significance.',
                                    'Thin-target recall still needs paired size-stratified diagnosis.',
-                                   'Original training crossed Windows/Linux hardware; not bitwise reproducible.'])
+                                           'Original training crossed Windows/Linux hardware; not bitwise reproducible.'])
+    if cfg.get('kind')=='mask_control':
+        comparison['mask_control']=comparison.pop('rf_1536')
+        manifest=read(BASE/'experiment_manifest.json')
+        reference=manifest['detail_reference']
+        detail=read(Path(manifest['active_project'])/'output/benchmark/routes_v3/feature_control/completed.json')
+        difference=reference['pq']-metrics['pq']
+        matched=(result['completed_epochs']==detail['completed_epochs']==30
+                 and result['optimizer_updates']==detail['optimizer_updates'])
+        if not checks['passed']:
+            next_decision='blocked_artifact_checks'
+        elif not matched:
+            next_decision='training_amount_not_matched_review_before_attribution'
+        elif abs(difference)<=.002:
+            next_decision='extra_training_vs_detail_not_resolved_single_seed'
+        elif difference>.002:
+            next_decision='detail_branch_candidate_gain_confirm_paired_errors'
+        else:
+            next_decision='plain_mask_adaptation_leads_reconsider_detail_branch'
+        inherited=baseline_done['training_seconds']/3600
+        comparison.update(detail_reference=reference,delta_detail_minus_mask_control=difference,
+                          matched_epochs_and_updates=matched,decision=next_decision,
+                          inherited_rf_training_hours=inherited,
+                          mask_control_total_training_hours=inherited+result['training_seconds']/3600,
+                          detail_total_training_hours=inherited+detail['training_seconds']/3600,
+                          limitations=['Single seed: .002 is an inconclusive region, not statistical significance.',
+                                       'Paired error/size diagnosis required before attributing the gain.',
+                                       'Different module initializations can change dropout RNG; frozen data/recipe retained.'])
     write(BASE / 'comparison.json', comparison)
-    print('RF_RESOLUTION_RESULT', json.dumps(comparison), flush=True)
+    print('MASK_CONTROL_RESULT' if cfg.get('kind')=='mask_control' else 'RF_RESOLUTION_RESULT', json.dumps(comparison), flush=True)
     return checks['passed']
 
 
-def main():
+def main(experiment='rf_resolution'):
+    global BASE
+    if experiment not in {'rf_resolution','mask_control'}:
+        raise ValueError('Unknown experiment')
+    if experiment=='mask_control':
+        BASE=ROOT/'output/benchmark/mask_control_v1'
+    label='M0_MASK_CONTROL' if experiment=='mask_control' else 'RF_1536'
     parser = argparse.ArgumentParser()
     parser.add_argument('--active-project', type=Path, required=True)
     parser.add_argument('--followup-project', type=Path,
@@ -209,7 +256,7 @@ def main():
         jobs = running_jobs()
         if jobs:
             raise RuntimeError('Existing experiment/waiter; duplicate launch refused: ' + json.dumps(jobs))
-        cfg, original_manifest, baseline_done, baseline_metrics = inspect_inputs(active)
+        cfg, original_manifest, baseline_done, baseline_metrics = inspect_inputs(active,experiment)
         source = source_record()
         folder = BASE / cfg['id']
         if (folder / 'completed.json').exists():
@@ -237,15 +284,17 @@ def main():
         if remaining <= 0:
             raise RuntimeError('Six-hour cumulative wall budget exhausted; review before adding budget')
         if (BASE / 'stop_requested.json').exists() and not args.resume:
-            raise RuntimeError('RF 1536 stop request exists; inspect before explicit safe resume')
+            raise RuntimeError('Experiment stop request exists; inspect before explicit safe resume')
         link_inputs(active)
         if args.prepare_only:
-            print('RF_1536_INPUTS_READY commit=' + source['commit'] + '; no GPU/model loaded', flush=True)
+            print(label+'_INPUTS_READY commit=' + source['commit'] + '; no GPU/model loaded', flush=True)
             return
         # One namespace and one experiment. No warm start from the trained 1056 RF.
         os.environ.update(SOLAR_ROUTE_OUTPUT_ROOT=str(BASE), KAGGLE_COOPERATIVE_GPU='0',
                           HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1')
         os.environ.pop('SOLAR_RF_WARMSTART', None)
+        if experiment=='mask_control':
+            os.environ['SOLAR_RF_WARMSTART']=str(original_base/'rf/best.pt')
         os.environ['SOLAR_PRETRAINED_ROOT'] = str(active / 'output/pretrained/routes_v3')
         folder.mkdir(parents=True, exist_ok=True)
         manifest = dict(original_manifest, runs=[cfg], source=source, active_project=str(active),
@@ -254,6 +303,16 @@ def main():
                         baseline_pq=baseline_metrics['pq'], wall_budget_seconds=6 * 3600,
                         wall_policy='Cumulative soft cap: request checkpoint pause at accumulation boundary; in-flight preflight/evaluation may finish.',
                         automatic_next_stage=False)
+        if experiment=='mask_control':
+            warm=original_base/'rf/best.pt'
+            warm_sha=sha(warm)
+            if previous and previous['warmstart_sha256']!=warm_sha:
+                raise RuntimeError('Original RF checkpoint changed; do not mix warm starts')
+            detail_metrics=read(original_base/'feature_control/best_metrics.json')
+            manifest.update(experiment='mask_control',deliverable_dir=str(ROOT/'deliverables/mask_control_v1'),
+                            hypothesis='Same trained RF, frozen backbone/query/box/class heads; only original mask head learns, no added branch.',
+                            warmstart_path=str(warm),warmstart_sha256=warm_sha,detail_reference=detail_metrics,
+                            inherited_rf_training_hours=baseline_done['training_seconds']/3600)
         write(BASE / 'experiment_manifest.json', manifest)
         write(folder / 'config.json', cfg)
         identity = dict(pid=os.getpid(), create_time=psutil.Process().create_time(), source_commit=source['commit'])
@@ -288,6 +347,16 @@ def main():
                                                 original_versions=original_manifest.get('versions', {}),
                                                 pretrained_sha256=sha(weight)))
             torch.cuda.set_per_process_memory_fraction(.85, 0)
+            if experiment=='mask_control':
+                warm=torch.load(original_base/'rf/best.pt',map_location='cpu',weights_only=False)
+                if warm.get('config')!=next(c for c in read(ROOT/'linux/integrity.json')['runs'] if c['id']=='rf'):
+                    raise RuntimeError('Original RF warm-start config mismatch')
+                for split in ['train','val']:
+                    if warm['state'][split+'_split_sha256']!=original_manifest[split+'_split_sha256']:
+                        raise RuntimeError('Original RF warm-start split mismatch')
+                if warm.get('debug') or warm['state']['best_epoch']!=baseline_done['best_epoch']:
+                    raise RuntimeError('Use the completed original RF best checkpoint, never a debug/last checkpoint')
+                del warm
             if args.resume:
                 saved = torch.load(folder / 'last.pt', map_location='cpu', weights_only=False)
                 for key in ['model', 'optimizer', 'state', 'config', 'rng']:

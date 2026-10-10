@@ -63,6 +63,9 @@ class RFRoute(nn.Module):
         if cfg['kind'].startswith('feature'):
             self.core.segmentation_head=DetailHead(self.core.segmentation_head)
             self.core.segmentation_head.requires_grad_(True)
+        if cfg['kind']=='mask_control':
+            # Matched warm-start control: original mask head, no added feature layer.
+            self.core.segmentation_head.requires_grad_(True)
         tc=TrainConfig(dataset_dir=str(ROOT),output_dir=str(ROOT/'work'),batch_size=1,epochs=cfg['epochs'],use_ema=False)
         self.criterion,_=build_criterion_from_config(wrapper.model_config,tc)
         self.register_buffer('mean',torch.tensor([.485,.456,.406])[None,:,None,None])
